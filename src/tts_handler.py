@@ -3,8 +3,12 @@ import logging
 import asyncio
 import time
 import threading
+import warnings
 from RealtimeSTT import AudioToTextRecorder
 from RealtimeTTS import SystemEngine, TextToAudioStream
+
+# Suppress specific warnings to reduce noise
+warnings.filterwarnings("ignore", category=DeprecationWarning, message="pkg_resources is deprecated")
 
 # Configure logging
 logging.basicConfig(
@@ -23,23 +27,24 @@ class TTSHandler:
             self.engine = SystemEngine()
             self.stream = TextToAudioStream(self.engine)
             
-            # Initialize speech detector for barge-in
+            # Initialize speech detector for barge-in with aggressive settings
             self.speech_detector = AudioToTextRecorder(
                 model="tiny",
                 language="en",
                 compute_type="int8",
                 enable_realtime_transcription=True,
-                realtime_processing_pause=0.1,
-                post_speech_silence_duration=0.3,
-                min_length_of_recording=0.2
+                realtime_processing_pause=0.05,  # Reduced from 0.1 for faster detection
+                post_speech_silence_duration=0.2,  # Reduced from 0.3 for faster response
+                min_length_of_recording=0.1  # Reduced from 0.2 for faster detection
             )
             
             self.is_playing = False
             self.is_barge_in_enabled = True
             self.barge_in_detected = False
             self.playback_thread = None
+            self.stop_event = threading.Event()  # For immediate cancellation
             
-            logger.info("🎤 TTS Handler initialized with barge-in capability.")
+            logger.info("🎤 TTS Handler initialized with enhanced barge-in capability.")
         except Exception as e:
             logger.error(f"❌ Error initializing TTS: {e}")
             self.engine = None
@@ -48,28 +53,50 @@ class TTSHandler:
             raise
     
     def _playback_with_barge_in(self, text: str):
-        """Play audio in a separate thread while monitoring for speech."""
+        """Play audio in a separate thread while monitoring for speech with enhanced responsiveness."""
         def monitor_speech():
-            """Monitor for user speech during playback."""
+            """Monitor for user speech during playback with aggressive detection."""
             try:
                 if self.is_barge_in_enabled and self.speech_detector:
-                    # Start speech detection
-                    detected_text = self.speech_detector.text()
-                    if detected_text and detected_text.strip():
-                        logger.info(f"🎤 Barge-in detected: {detected_text}")
-                        self.barge_in_detected = True
-                        # Immediately stop the stream
-                        if hasattr(self.stream, 'stop'):
-                            self.stream.stop()
-                            logger.info("🛑 Audio playback stopped due to barge-in")
+                    # Use shorter intervals for faster detection
+                    last_check_time = time.time()
+                    
+                    while not self.stop_event.is_set() and self.is_playing:
+                        current_time = time.time()
+                        
+                        # Check speech detection every 50ms for maximum responsiveness
+                        if current_time - last_check_time >= 0.05:
+                            try:
+                                # Get detected text
+                                detected_text = self.speech_detector.text()
+                                if detected_text and detected_text.strip():
+                                    logger.info(f"🎤 Barge-in detected: {detected_text}")
+                                    self.barge_in_detected = True
+                                    # Signal immediate stop
+                                    self.stop_event.set()
+                                    # Immediately stop the stream
+                                    if self.stream and hasattr(self.stream, 'stop'):
+                                        self.stream.stop()
+                                        logger.info("🛑 Audio playback stopped due to barge-in")
+                                    break
+                            except Exception:
+                                # Non-critical error, continue monitoring
+                                pass
+                            
+                            last_check_time = current_time
+                        
+                        # Small sleep to prevent CPU overload
+                        time.sleep(0.01)
+                        
             except Exception as e:
                 logger.error(f"❌ Error monitoring speech: {e}")
         
         def play_audio():
-            """Play the audio stream."""
+            """Play the audio stream with enhanced cancellation."""
             try:
                 self.is_playing = True
                 self.barge_in_detected = False
+                self.stop_event.clear()
                 
                 # Start speech monitoring in a separate thread
                 monitor_thread = threading.Thread(target=monitor_speech, daemon=True)
@@ -81,12 +108,22 @@ class TTSHandler:
                 
                 if self.stream:
                     self.stream.feed(text_generator())
-                    self.stream.play()
+                    
+                    # Play with enhanced cancellation support
+                    try:
+                        self.stream.play()
+                    except Exception as e:
+                        # Check if it was cancelled
+                        if self.stop_event.is_set():
+                            logger.info("🛑 Playback cancelled due to barge-in")
+                        else:
+                            logger.error(f"❌ Error during playback: {e}")
                 
             except Exception as e:
                 logger.error(f"❌ Error during playback: {e}")
             finally:
                 self.is_playing = False
+                self.stop_event.clear()
         
         # Start playback in a separate thread
         self.playback_thread = threading.Thread(target=play_audio, daemon=True)
@@ -128,7 +165,7 @@ class TTSHandler:
             self._playback_with_barge_in(text)
             
             # Save audio to file (SystemEngine might not return audio data directly)
-            output_dir = os.path.join("audio", "output")
+            output_dir = os.path.join("src", "audio", "output")
             os.makedirs(output_dir, exist_ok=True)
             output_path = os.path.join(output_dir, f"{int(time.time())}.wav")
             

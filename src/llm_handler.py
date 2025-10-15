@@ -31,6 +31,9 @@ class LLMHandler:
         try:
             url = self.base_url
             
+            # Pre-process the input to handle common transcription variations
+            processed_text = self._preprocess_transcription(text)
+            
             # Enhanced system prompt for more human-like conversation
             system_prompt = """You are Alex, a friendly and professional AI voice assistant for Shamla Tech. 
 You're not just a bot - you're a helpful conversation partner who:
@@ -50,13 +53,19 @@ About Shamla Tech:
 - We help businesses transform with innovative AI tools
 - Our team is passionate about technology and helping clients succeed
 
+IMPORTANT TRANSCRIPTION GUIDELINES:
+- If you hear variations of "Shamla Tech" like "Shambla Tech", "Shamla", "Shambla", etc., assume they mean Shamla Tech
+- If you hear numbers that might be misheard words (like "blocked" instead of "about"), interpret based on context
+- Be forgiving of minor pronunciation errors and focus on the user's intent
+- If something sounds unclear, ask for clarification in a friendly way
+
 Remember: Sound human, be helpful, and make every conversation feel natural and engaging!"""
 
             payload = {
                 "model": "gpt-4o-mini",
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text}
+                    {"role": "user", "content": processed_text}
                 ],
                 "temperature": 0.8,  # Higher temperature for more creative, human-like responses
                 "max_tokens": 1000,
@@ -78,6 +87,9 @@ Remember: Sound human, be helpful, and make every conversation feel natural and 
             result = response.json()
             response_text = result['choices'][0]['message']['content'].strip()
             
+            # Post-process response to remove unwanted prefixes and clean up
+            response_text = self._post_process_response(response_text)
+            
             logger.info(f"📝 LLM Response: {response_text}")
             return response_text
             
@@ -96,6 +108,9 @@ Remember: Sound human, be helpful, and make every conversation feel natural and 
         try:
             url = self.base_url
 
+            # Pre-process the input to handle common transcription variations
+            processed_text = self._preprocess_transcription(text)
+            
             # Build conversation context with recent exchanges
             messages = [
                 {"role": "system", "content": """You are Alex, a friendly and professional AI voice assistant for Shamla Tech. 
@@ -116,6 +131,12 @@ About Shamla Tech:
 - We help businesses transform with innovative AI tools
 - Our team is passionate about technology and helping clients succeed
 
+IMPORTANT TRANSCRIPTION GUIDELINES:
+- If you hear variations of "Shamla Tech" like "Shambla Tech", "Shamla", "Shambla", etc., assume they mean Shamla Tech
+- If you hear numbers that might be misheard words (like "blocked" instead of "about"), interpret based on context
+- Be forgiving of minor pronunciation errors and focus on the user's intent
+- If something sounds unclear, ask for clarification in a friendly way
+
 Remember: Sound human, be helpful, and make every conversation feel natural and engaging!"""}
             ]
             
@@ -126,8 +147,8 @@ Remember: Sound human, be helpful, and make every conversation feel natural and 
                 else:  # Assistant message
                     messages.append({"role": "assistant", "content": exchange})
             
-            # Add the current user message
-            messages.append({"role": "user", "content": text})
+            # Add the current user message (with pre-processing)
+            messages.append({"role": "user", "content": processed_text})
             
             payload = {
                 "model": "gpt-4o-mini",
@@ -145,6 +166,7 @@ Remember: Sound human, be helpful, and make every conversation feel natural and 
             }
             
             logger.info(f"🤖 Processing text with history: {text}")
+            logger.info(f"🔧 Pre-processed text: {processed_text}")
             
             response = requests.post(url, json=payload, headers=headers)
             response.raise_for_status()
@@ -152,12 +174,111 @@ Remember: Sound human, be helpful, and make every conversation feel natural and 
             result = response.json()
             response_text = result['choices'][0]['message']['content'].strip()
             
+            # Post-process response to remove unwanted prefixes and clean up
+            response_text = self._post_process_response(response_text)
+            
             logger.info(f"📝 LLM Response: {response_text}")
             return response_text
             
         except Exception as e:
             logger.error(f"❌ Error processing text with history: {e}")
             return "I apologize, but I'm having trouble processing our conversation right now. Could you please try again?"
+
+    def _preprocess_transcription(self, text: str) -> str:
+        """Pre-process transcription to handle common variations and errors."""
+        if not text:
+            return text
+        
+        # Convert to lowercase for easier processing
+        processed = text.lower()
+        
+        # Handle Shamla Tech variations
+        shamla_variations = [
+            "shambla tech", "shambla", "shamla tech", "shamla",
+            "shambla technologies", "shamla technologies",
+            "shambla", "shambla", "shambla", "shambla"  # Common mispronunciations
+        ]
+        
+        for variation in shamla_variations:
+            if variation in processed:
+                processed = processed.replace(variation, "shamla tech")
+                break
+        
+        # Handle common number/word confusions
+        word_confusions = {
+            "blocked": "about",
+            "blacked": "about", 
+            "blogged": "about",
+            "wanna": "want to",
+            "gonna": "going to",
+            "sorta": "sort of",
+            "lemme": "let me",
+            "gimme": "give me",
+            "hafta": "have to",
+            "shoulda": "should have",
+            "coulda": "could have",
+            "woulda": "would have"
+        }
+        
+        for wrong_word, correct_word in word_confusions.items():
+            processed = processed.replace(wrong_word, correct_word)
+        
+        # Handle common company name variations
+        company_variations = {
+            "shambla": "shamla",
+            "shambla tech": "shamla tech",
+            "shambla technologies": "shamla tech"
+        }
+        
+        for wrong, correct in company_variations.items():
+            processed = processed.replace(wrong, correct)
+        
+        # Restore original casing while keeping the corrections
+        # This is a simple approach - in production, you might want more sophisticated casing
+        final_text = text
+        for wrong, correct in company_variations.items():
+            if wrong.lower() in text.lower():
+                final_text = final_text.replace(wrong, correct)
+        
+        # Apply word confusions to original text
+        for wrong_word, correct_word in word_confusions.items():
+            if wrong_word in final_text.lower():
+                final_text = final_text.replace(wrong_word, correct_word)
+        
+        return final_text.strip()
+
+    def _post_process_response(self, response_text: str) -> str:
+        """Post-process LLM response to remove unwanted prefixes and improve natural flow."""
+        if not response_text:
+            return response_text
+        
+        # Remove unwanted prefixes
+        unwanted_prefixes = [
+            "agent:",
+            "agent: ",
+            "agent - ",
+            "assistant:",
+            "assistant: ",
+            "ai: ",
+            "ai - ",
+            "shamla tech agent:",
+            "shamla tech agent: "
+        ]
+        
+        cleaned_response = response_text
+        for prefix in unwanted_prefixes:
+            if cleaned_response.lower().startswith(prefix.lower()):
+                cleaned_response = cleaned_response[len(prefix):].strip()
+                break
+        
+        # Clean up multiple spaces and newlines
+        cleaned_response = " ".join(cleaned_response.split())
+        
+        # Ensure the response starts with a capital letter
+        if cleaned_response and cleaned_response[0].islower():
+            cleaned_response = cleaned_response[0].upper() + cleaned_response[1:]
+        
+        return cleaned_response.strip()
 
 async def main():
     """Example usage of LLMHandler"""

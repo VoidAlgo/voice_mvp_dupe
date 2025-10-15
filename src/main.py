@@ -3,6 +3,10 @@ from llm_handler import LLMHandler
 from tts_handler import TTSHandler
 import asyncio
 import logging
+import warnings
+
+# Suppress specific warnings to reduce noise
+warnings.filterwarnings("ignore", category=DeprecationWarning, message="pkg_resources is deprecated")
 
 # Configure logging
 logging.basicConfig(

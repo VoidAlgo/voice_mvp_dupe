@@ -145,7 +145,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print("Make sure you have:")
     print("1. Microphone access")
-    print("2. GEMINI_API_KEY set in your .env file")
+    print("2. OPENAI_API_KEY set in your .env file")
     print("3. Required dependencies installed")
     print("=" * 50)
     

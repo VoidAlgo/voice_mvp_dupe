@@ -4,6 +4,7 @@ RealtimeSTT
 faster-whisper
 requests
 python-dotenv
+openai
 
 # Audio Processing
 soundfile

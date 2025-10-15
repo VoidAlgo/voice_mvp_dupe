@@ -1,0 +1,20 @@
+# Voice Processing Dependencies
+realtimetts[orpheus]
+RealtimeSTT
+faster-whisper
+requests
+python-dotenv
+
+# Audio Processing
+soundfile
+numpy
+
+# Async Support
+asyncio
+
+# Logging
+colorlog
+
+# Optional: For better performance
+torch
+transformers
